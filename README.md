@@ -36,7 +36,7 @@ All rules apply only to **new outbound TCP connections** (`OUTPUT` chain, SYN pa
 | Horizontal scan | One port (22, 3389, 23, ...) across many IPs | 100/sec per port |
 | Flood cap | Flood to one IP on web ports | 1500/sec per IP |
 
-Both IPv4 and IPv6 are covered. The installer also raises `nf_conntrack_max` to 1048576 if it is lower.
+Both IPv4 and IPv6 are covered. The rules are stateless (no conntrack needed); if conntrack is already in use (e.g. ufw), the installer raises `nf_conntrack_max` to 1048576 if it is lower.
 
 ## Usage
 

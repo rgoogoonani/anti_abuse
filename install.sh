@@ -68,9 +68,10 @@ if ip -4 addr show 2>/dev/null | grep -qE 'inet (172\.(1[6-9]|2[0-9]|3[01])|10\.
     warn "If services use them, set BLOCK_PRIVATE=\"no\" in $CONF and restart."
 fi
 
-# Conntrack table size for high user counts
-CUR_MAX=$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo 0)
-if [ "$CUR_MAX" -lt 1048576 ]; then
+# Conntrack table size for high user counts (only if conntrack is in use; our rules are stateless)
+if [ ! -e /proc/sys/net/netfilter/nf_conntrack_max ]; then
+    info "Conntrack not loaded, nothing to tune (rules are stateless)"
+elif [ "$(sysctl -n net.netfilter.nf_conntrack_max)" -lt 1048576 ]; then
     cat > "$SYSCTL" <<'EOF'
 net.netfilter.nf_conntrack_max = 1048576
 net.netfilter.nf_conntrack_tcp_timeout_established = 3600
