@@ -35,6 +35,9 @@ All rules apply only to **new outbound TCP connections** (`OUTPUT` chain, SYN pa
 | Vertical scan | Many connections to one IP on non-web ports | 20/sec per IP |
 | Horizontal scan | One port (22, 3389, 23, ...) across many IPs | 100/sec per port |
 | Flood cap | Flood to one IP on web ports | 1500/sec per IP |
+| BitTorrent / DHT | Torrent handshake, tracker and DHT packets (copyright abuse reports) | Dropped |
+
+The torrent rule hooks both `OUTPUT` (Xray) and `FORWARD` (WireGuard / AmneziaWG), matches TCP and UDP, and only string-scans packets up to 1024 bytes so bulk traffic is not inspected. It cannot see encrypted tracker traffic (HTTPS trackers) or fully obfuscated peers, so keep the Xray `bittorrent` routing rule below as well. Disable it with `BLOCK_TORRENT="no"`.
 
 Both IPv4 and IPv6 are covered. The rules are stateless (no conntrack needed); if conntrack is already in use (e.g. ufw), the installer raises `nf_conntrack_max` to 1048576 if it is lower.
 
@@ -60,6 +63,7 @@ Edit `/etc/abuse-guard.conf`, then `systemctl restart abuse-guard`.
 - `LEGIT_PORTS` — ports excluded from scan rules
 - `SCAN_DST_RATE`, `SCAN_PORT_RATE`, `WEB_DST_RATE` (+ `_BURST`) — thresholds
 - `BLOCK_PRIVATE` — set to `no` if you use Docker or a provider private network (Hetzner Private Network, OVH vRack)
+- `BLOCK_TORRENT` — `yes` (default) or `no`; signatures are in `TORRENT_STRINGS` (separated by `|`)
 
 If a legitimate service gets blocked (check the logs), add its port to `LEGIT_PORTS` or raise the thresholds.
 
@@ -78,5 +82,6 @@ with an outbound `{ "protocol": "blackhole", "tag": "block" }`, and `sniffing` e
 ## Notes
 
 - Xray connections all originate from the server itself, so the firewall cannot tell users apart. To find the abusing user, enable the Xray access log and match the destination IP from `ABUSE_GUARD` logs.
-- WireGuard / AmneziaWG traffic goes through the `FORWARD` chain and is **not** covered by these rules.
+- WireGuard / AmneziaWG traffic goes through the `FORWARD` chain and is covered only by the torrent rule, not by the SYN flood / port scan rules.
+- Blocked torrent packets: `journalctl -k | grep ABUSE_P2P`
 - Designed for Ubuntu 24.04 and Debian.

@@ -11,6 +11,8 @@ SCAN_DST_RATE="20/sec";  SCAN_DST_BURST=40       # vertical scan (per destinatio
 SCAN_PORT_RATE="100/sec"; SCAN_PORT_BURST=200    # horizontal scan (per destination port, non-web ports)
 WEB_DST_RATE="1500/sec"; WEB_DST_BURST=3000      # emergency flood cap (per destination IP, web ports)
 BLOCK_PRIVATE="yes"                              # set "no" if you use Docker / provider private network
+BLOCK_TORRENT="yes"                              # drop BitTorrent / DHT traffic (OUTPUT + FORWARD)
+TORRENT_STRINGS="BitTorrent protocol|peer_id=|info_hash=|announce_peer|get_peers|find_node|d1:ad2:id20:"
 PRIVATE_NETS_V4="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16"
 PRIVATE_NETS_V6="fc00::/7 fe80::/10"
 
@@ -18,6 +20,8 @@ PRIVATE_NETS_V6="fc00::/7 fe80::/10"
 
 CHAIN=ABUSE_GUARD
 DROP_CHAIN=ABUSE_DROP
+P2P_CHAIN=ABUSE_P2P
+P2P_DROP_CHAIN=ABUSE_P2P_DROP
 HT="--hashlimit-htable-size 65536 --hashlimit-htable-max 524288 --hashlimit-htable-expire 10000"
 
 teardown() {
@@ -26,6 +30,11 @@ teardown() {
     while $IPT -D OUTPUT -p tcp --syn -j $CHAIN 2>/dev/null; do :; done
     $IPT -F $CHAIN 2>/dev/null || true; $IPT -X $CHAIN 2>/dev/null || true
     $IPT -F $DROP_CHAIN 2>/dev/null || true; $IPT -X $DROP_CHAIN 2>/dev/null || true
+    for hook in OUTPUT FORWARD; do
+        while $IPT -D $hook -m length --length 0:1024 -j $P2P_CHAIN 2>/dev/null; do :; done
+    done
+    $IPT -F $P2P_CHAIN 2>/dev/null || true; $IPT -X $P2P_CHAIN 2>/dev/null || true
+    $IPT -F $P2P_DROP_CHAIN 2>/dev/null || true; $IPT -X $P2P_DROP_CHAIN 2>/dev/null || true
 }
 
 setup() {
@@ -74,7 +83,25 @@ setup() {
         --hashlimit-mode dstip --hashlimit-above $WEB_DST_RATE --hashlimit-burst $WEB_DST_BURST \
         $HT -j $DROP_CHAIN
 
-    echo "[OK] $IPT rules applied (mode: $MODE)"
+    # 4) BitTorrent / DHT (copyright abuse reports). Matches handshake, tracker and DHT
+    #    signatures in small packets only, so bulk traffic is not string-scanned.
+    #    Covers Xray (OUTPUT) and WireGuard / AmneziaWG (FORWARD).
+    if [ "$BLOCK_TORRENT" = "yes" ]; then
+        $IPT -N $P2P_CHAIN
+        $IPT -N $P2P_DROP_CHAIN
+        $IPT -A $P2P_DROP_CHAIN -m limit --limit 6/min -j LOG --log-prefix "ABUSE_P2P: " --log-level 4
+        [ "$MODE" = "enforce" ] && $IPT -A $P2P_DROP_CHAIN -j DROP
+        local IFS='|'
+        for s in $TORRENT_STRINGS; do
+            $IPT -A $P2P_CHAIN -m string --algo bm --string "$s" -j $P2P_DROP_CHAIN
+        done
+        unset IFS
+        for hook in OUTPUT FORWARD; do
+            $IPT -I $hook 1 -m length --length 0:1024 -j $P2P_CHAIN
+        done
+    fi
+
+    echo "[OK] $IPT rules applied (mode: $MODE, torrent block: $BLOCK_TORRENT)"
 }
 
 case "${1:-start}" in
@@ -93,6 +120,8 @@ case "${1:-start}" in
         echo "Mode: $MODE"
         iptables -L $CHAIN -v -n 2>/dev/null || echo "IPv4 chain not loaded"
         ip6tables -L $CHAIN -v -n 2>/dev/null || echo "IPv6 chain not loaded"
+        iptables -L $P2P_CHAIN -v -n 2>/dev/null || echo "IPv4 torrent chain not loaded"
+        ip6tables -L $P2P_CHAIN -v -n 2>/dev/null || echo "IPv6 torrent chain not loaded"
         ;;
     *)
         echo "Usage: $0 start|stop|status"; exit 1

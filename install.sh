@@ -55,6 +55,7 @@ SCAN_DST_RATE="20/sec";  SCAN_DST_BURST=40
 SCAN_PORT_RATE="100/sec"; SCAN_PORT_BURST=200
 WEB_DST_RATE="1500/sec"; WEB_DST_BURST=3000
 BLOCK_PRIVATE="yes"                            # set "no" if you use Docker / provider private network
+BLOCK_TORRENT="yes"                            # drop BitTorrent / DHT traffic
 EOF
     info "Config created at $CONF"
 else
